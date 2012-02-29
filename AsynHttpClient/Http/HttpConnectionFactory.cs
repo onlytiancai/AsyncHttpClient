@@ -7,16 +7,21 @@ using AsynHttpClient.Tcp;
 namespace AsynHttpClient.Http
 {
 
-    internal class HttpConnectionFactory
+    internal class HttpConnectionPool
     {
-        public static TcpClientConnection<HttpConnectionState> CreateConnection(string url)
+        public static TcpClientConnection<HttpConnectionState> CheckOut(string url)
         {
+            //todo:从池里取出连接
             HttpConnectionState state = BuildConnectionState(url);
             HttpRequest request = state.Request;
             Uri uri = request.RequestUri;
             string host = uri.Host;
             int port = uri.Port;
             return new TcpClientConnection<HttpConnectionState>(host, port, state);
+        }
+        public static void CheckIn(TcpClientConnection<HttpConnectionState> conn)
+        {
+            //todo:把链接入池
         }
         private static HttpConnectionState BuildConnectionState(string url)
         {

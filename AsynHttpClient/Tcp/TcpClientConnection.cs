@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Net.Sockets;
 using System.Net;
+using System.Collections.Concurrent;
 
 namespace AsynHttpClient.Tcp
 {
@@ -14,6 +15,7 @@ namespace AsynHttpClient.Tcp
     /// <typeparam name="T"></typeparam>
     public class TcpClientConnection<T>
     {
+
         public event Action<TcpClientConnection<T>, T, BufferData> DataReceived;
         public event Action<TcpClientConnection<T>, T, Exception> Error;
         public event Action<TcpClientConnection<T>, T> Connected;
@@ -51,8 +53,12 @@ namespace AsynHttpClient.Tcp
             }
             try
             {
-                _sendArgs.SetBuffer(data, 0, data.Length);
-                _client.SendAsync(_sendArgs);
+                if (_pendingSend)
+                {
+                    _sendBuffers.Add(data);
+                    return;
+                }
+                SendDataIfNoPending(data, 0, data.Length);
             }
             catch (Exception ex)
             {
@@ -69,7 +75,10 @@ namespace AsynHttpClient.Tcp
                 _sendArgs.Dispose();
                 _receiveArgs.Dispose();
                 UnSubscribeArgsEvent();
-                _client.Close();
+                if (_client != null)
+                {
+                    _client.Close();
+                }
             }
             catch (Exception ex)
             {
@@ -177,7 +186,9 @@ namespace AsynHttpClient.Tcp
         private void SendComplete(object sender, SocketAsyncEventArgs e)
         {
             if (HasSocketError(e)) return;
-            //info:可能一次发送不完
+            if (CheckRemainingData(e)) return;
+            if(CheckSendQueue()) return;
+            _pendingSend = false;
         }
 
         private void ReceiveComplete(object sender, SocketAsyncEventArgs e)
@@ -227,9 +238,43 @@ namespace AsynHttpClient.Tcp
             if (!IsConnected) return;
             int bufferLength = _receiveBuffer.Length;
             _receiveArgs.SetBuffer(_receiveBuffer, 0, bufferLength);
-            _client.ReceiveAsync(_receiveArgs);
+            if (!_client.ReceiveAsync(_receiveArgs))
+            {
+                ReceiveComplete(_receiveArgs, _receiveArgs);
+            }
+        }
+        private void SendDataIfNoPending(byte[] data, int offset, int length)
+        {
+            _pendingSend = true;
+            _sendArgs.SetBuffer(data, offset, length);
+            _sendArgs.UserToken = data.Length;
+            if (!_client.SendAsync(_sendArgs))
+            {
+                SendComplete(_sendArgs, _sendArgs);
+            }
+        }
+        private bool CheckSendQueue()//info:needreflacter 名字不像返回bool值
+        {
+            byte[] data = null;
+            if (_sendBuffers.TryTake(out data))
+            {
+                SendDataIfNoPending(data, 0, data.Length);
+                return true;
+            }
+            return false;
         }
 
+        private bool CheckRemainingData(SocketAsyncEventArgs e)//info:needreflacter 名字不像返回bool值
+        {
+            int sendDataLength = (int)e.UserToken;
+            int remainingLength = sendDataLength - e.BytesTransferred;
+            if (remainingLength > 0)
+            {
+                SendDataIfNoPending(e.Buffer, e.BytesTransferred, remainingLength);
+                return true;
+            }
+            return false;
+        }
         private string _host;
         private int _port;
         private Socket _client;
@@ -238,5 +283,7 @@ namespace AsynHttpClient.Tcp
         private SocketAsyncEventArgs _sendArgs;
         private SocketAsyncEventArgs _receiveArgs;
         private byte[] _receiveBuffer = new byte[1024];
+        private ConcurrentBag<byte[]> _sendBuffers = new ConcurrentBag<byte[]>();
+        private bool _pendingSend = false;
     }
 }

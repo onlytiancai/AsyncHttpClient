@@ -15,7 +15,7 @@ namespace AsynHttpClient.Http
         {
             Count += 1;
             if (string.IsNullOrEmpty(url)) return;
-            TcpClientConnection<HttpConnectionState> conn = HttpConnectionFactory.CreateConnection(url);
+            TcpClientConnection<HttpConnectionState> conn = HttpConnectionPool.CheckOut(url);
             conn.Error += conn_Error;
             conn.Connected += conn_Connected;
             conn.DataReceived += conn_DataReceived;
@@ -40,7 +40,7 @@ namespace AsynHttpClient.Http
 
         private void conn_Error(TcpClientConnection<HttpConnectionState> conn, HttpConnectionState state, Exception error)
         {
-            TriggerCompleted(new HttpFetchResult(state.Url, error: error));
+            TriggerCompleted(new HttpFetchResult(state.Url, error: error));            
         }
 
         private void conn_Connected(TcpClientConnection<HttpConnectionState> conn, HttpConnectionState state)
